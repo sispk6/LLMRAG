@@ -1,0 +1,10 @@
+model_path: "models/llama-2-7b-chat.Q4_K_M.gguf"
+embedding_model_name: "models/all-MiniLM-L6-v2"
+source_documents_dir: "source_documents"
+persist_directory: "chroma_db"
+chunk_size: 1000
+chunk_overlap: 200
+api_host: "0.0.0.0"
+api_port: 8000
+n_ctx: 4096
+n_threads: 4

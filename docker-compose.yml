@@ -1,0 +1,19 @@
+services:
+  rag-system-fastapi:
+    build: .
+    container_name: rag-system-fastapi
+    ports:
+      - "8000:8000"
+    volumes:
+      # Map the models directory so you can drop GGUF files here
+      - ./models:/app/models
+      # Map documents so you can add files from host
+      - ./source_documents:/app/source_documents
+      # Persist ChromaDB
+      - ./chroma_db:/app/chroma_db
+    environment:
+      # You can override config values via env vars if api.py supported it, 
+      # but config.yaml is currently used. 
+      # We could map config.yaml if we wanted to change it.
+      - PYTHONUNBUFFERED=1
+      - ANONYMIZED_TELEMETRY=False
