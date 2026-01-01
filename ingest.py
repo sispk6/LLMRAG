@@ -1,11 +1,4 @@
-import os
-import yaml
-import glob
-from typing import List
-from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import SentenceTransformerEmbeddings
-from langchain_community.vectorstores import Chroma
+import re
 from langchain.docstore.document import Document
 
 # Load config
@@ -22,6 +15,14 @@ EMBEDDING_MODEL_NAME = config.get("embedding_model_name", "all-MiniLM-L6-v2")
 CHUNK_SIZE = config.get("chunk_size", 1000)
 CHUNK_OVERLAP = config.get("chunk_overlap", 200)
 
+def extract_version(filename: str) -> int:
+    """Extract version number from filename using _vN suffix."""
+    # Matches _v followed by one or more digits before the extension
+    match = re.search(r'_v(\d+)(?:\.[^.]+)?$', filename)
+    if match:
+        return int(match.group(1))
+    return 1  # Default version
+
 def load_documents(source_dir: str) -> List[Document]:
     if not os.path.exists(source_dir):
         os.makedirs(source_dir)
@@ -32,16 +33,20 @@ def load_documents(source_dir: str) -> List[Document]:
     for ext, loader_class in [('*.pdf', PyPDFLoader), ('*.docx', Docx2txtLoader), ('*.txt', TextLoader)]:
         for path in glob.glob(os.path.join(source_dir, ext)):
             try:
+                filename = os.path.basename(path)
+                version = extract_version(filename)
+                
                 if loader_class == TextLoader:
                     loader = loader_class(path, encoding="utf-8")
                 else:
                     loader = loader_class(path)
                 docs = loader.load()
-                # Add category metadata (default to "General" for root-level files)
+                # Add metadata
                 for doc in docs:
                     doc.metadata["category"] = "General"
+                    doc.metadata["version"] = version
                 documents.extend(docs)
-                print(f"Loaded: {path} (category: General)")
+                print(f"Loaded: {path} (category: General, version: {version})")
             except Exception as e:
                 print(f"Error loading {path}: {e}")
     
@@ -56,36 +61,42 @@ def load_documents(source_dir: str) -> List[Document]:
         # Load PDFs in this category
         for path in glob.glob(os.path.join(item_path, "*.pdf")):
             try:
+                version = extract_version(os.path.basename(path))
                 loader = PyPDFLoader(path)
                 docs = loader.load()
                 for doc in docs:
                     doc.metadata["category"] = category
+                    doc.metadata["version"] = version
                 documents.extend(docs)
-                print(f"Loaded: {path} (category: {category})")
+                print(f"Loaded: {path} (category: {category}, version: {version})")
             except Exception as e:
                 print(f"Error loading {path}: {e}")
 
         # Load DOCX in this category
         for path in glob.glob(os.path.join(item_path, "*.docx")):
             try:
+                version = extract_version(os.path.basename(path))
                 loader = Docx2txtLoader(path)
                 docs = loader.load()
                 for doc in docs:
                     doc.metadata["category"] = category
+                    doc.metadata["version"] = version
                 documents.extend(docs)
-                print(f"Loaded: {path} (category: {category})")
+                print(f"Loaded: {path} (category: {category}, version: {version})")
             except Exception as e:
                 print(f"Error loading {path}: {e}")
                 
         # Load TXT in this category
         for path in glob.glob(os.path.join(item_path, "*.txt")):
             try:
+                version = extract_version(os.path.basename(path))
                 loader = TextLoader(path, encoding="utf-8")
                 docs = loader.load()
                 for doc in docs:
                     doc.metadata["category"] = category
+                    doc.metadata["version"] = version
                 documents.extend(docs)
-                print(f"Loaded: {path} (category: {category})")
+                print(f"Loaded: {path} (category: {category}, version: {version})")
             except Exception as e:
                 print(f"Error loading {path}: {e}")
 

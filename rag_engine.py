@@ -52,6 +52,8 @@ class RAGProvider:
                     n_ctx=self.config.get("n_ctx", 2048),
                     n_threads=self.config.get("n_threads", 4),
                     temperature=0.3,  # Increased for better response quality
+                    max_tokens=self.config.get("max_tokens", 2048),
+                    request_timeout=self.config.get("request_timeout", 300),
                     verbose=True
                 )
             
@@ -156,6 +158,29 @@ Answer:"""
         else:
             result = self.qa_chain.invoke(query_text)
         
+        # Post-processing to identify latest versions
+        docs = result.get("source_documents", [])
+        if docs:
+            # Group by source/category to find latest versions in retrieved set
+            latest_versions = {}
+            for doc in docs:
+                source = doc.metadata.get("source", "unknown")
+                cat = doc.metadata.get("category", "General")
+                version = doc.metadata.get("version", 1)
+                key = (source, cat)
+                if key not in latest_versions or version > latest_versions[key]:
+                    latest_versions[key] = version
+            
+            # Tag docs as "Latest" or "Legacy"
+            for doc in docs:
+                source = doc.metadata.get("source", "unknown")
+                cat = doc.metadata.get("category", "General")
+                version = doc.metadata.get("version", 1)
+                if version == latest_versions.get((source, cat)):
+                    doc.metadata["is_latest"] = True
+                else:
+                    doc.metadata["is_latest"] = False
+        
         # Debug logging to see what chunks were retrieved
         print(f"\n{'='*60}")
         print(f"Query: {query_text}")
@@ -167,7 +192,10 @@ Answer:"""
             source = doc.metadata.get('source', 'unknown')
             page = doc.metadata.get('page', '?')
             doc_category = doc.metadata.get('category', 'N/A')
-            print(f"  [{i}] {source} - Page {page} (Category: {doc_category})")
+            doc_version = doc.metadata.get('version', 1)
+            is_latest = doc.metadata.get('is_latest', True)
+            status = " [LATEST]" if is_latest else " [OLD VERSION]"
+            print(f"  [{i}]{status} {source} - Page {page} (Category: {doc_category}, Version: {doc_version})")
             print(f"      Preview: {doc.page_content[:100].strip()}...")
         print(f"{'='*60}\n")
         

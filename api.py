@@ -118,10 +118,11 @@ def query_rag(request: QueryRequest, api_key: str = Security(get_api_key)):
     logger.info(f"Received query: {request.query} (category: {request.category})")
     try:
         response = rag.query(request.query, category=request.category)
-        sources = [
-            f"{doc.metadata.get('source', 'unknown')} (Page {doc.metadata.get('page', 0)}, Category: {doc.metadata.get('category', 'N/A')})" 
-            for doc in response.get("source_documents", [])
-        ]
+        sources = []
+        for doc in response.get("source_documents", []):
+            status = " [LATEST]" if doc.metadata.get('is_latest', True) else " [OLD VERSION]"
+            source_str = f"{doc.metadata.get('source', 'unknown')} (Page {doc.metadata.get('page', 0)}, Category: {doc.metadata.get('category', 'N/A')}, Version: {doc.metadata.get('version', 1)}){status}"
+            sources.append(source_str)
         return {"answer": response.get("result", ""), "sources": sources}
     except Exception as e:
         logger.error(f"Query failed: {e}")
@@ -167,9 +168,15 @@ def list_documents(api_key: str = Security(get_api_key)):
         # Root level files (General category)
         for ext in ['*.pdf', '*.docx', '*.txt']:
             for path in glob.glob(os.path.join(source_dir, ext)):
+                filename = os.path.basename(path)
+                # Try to extract version from filename for the listing
+                from ingest import extract_version
+                version = extract_version(filename)
+                
                 documents.append({
-                    "filename": os.path.basename(path),
+                    "filename": filename,
                     "category": "General",
+                    "version": version,
                     "path": path,
                     "size_bytes": os.path.getsize(path)
                 })
@@ -183,9 +190,14 @@ def list_documents(api_key: str = Security(get_api_key)):
             category = item
             for ext in ['*.pdf', '*.docx', '*.txt']:
                 for path in glob.glob(os.path.join(item_path, ext)):
+                    filename = os.path.basename(path)
+                    from ingest import extract_version
+                    version = extract_version(filename)
+                    
                     documents.append({
-                        "filename": os.path.basename(path),
+                        "filename": filename,
                         "category": category,
+                        "version": version,
                         "path": path,
                         "size_bytes": os.path.getsize(path)
                     })
@@ -248,9 +260,10 @@ def clear_database(api_key: str = Security(get_api_key)):
 async def upload_document(
     file: UploadFile = File(...),
     category: str = "General",
+    version: int = None,
     api_key: str = Security(get_api_key)
 ):
-    """Uploads a file to the source_documents directory, organized by category."""
+    """Uploads a file to the source_documents directory, organized by category and optional version."""
     try:
         # Ensure source directory exists
         source_dir = rag.config.get("source_documents_dir", "source_documents")
@@ -263,14 +276,24 @@ async def upload_document(
             os.makedirs(category_dir)
             logger.info(f"Created category directory: {category_dir}")
             
-        file_location = os.path.join(category_dir, file.filename)
+        # If version is explicitly provided, rename file to follow convention
+        final_filename = file.filename
+        if version is not None:
+            name, ext = os.path.splitext(file.filename)
+            # Remove existing _vN if any
+            import re
+            name = re.sub(r'_v\d+$', '', name)
+            final_filename = f"{name}_v{version}{ext}"
+            
+        file_location = os.path.join(category_dir, final_filename)
         with open(file_location, "wb+") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
-        logger.info(f"File saved: {file_location} (category: {category})")
+        logger.info(f"File saved: {file_location} (category: {category}, version: {version or 'auto'})")
         return {
-            "filename": file.filename, 
+            "filename": final_filename, 
             "category": category,
+            "version": version or "auto-extracted",
             "message": f"File uploaded successfully to category '{category}'. Call /ingest to process it."
         }
     except Exception as e:
